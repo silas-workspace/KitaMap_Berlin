@@ -92,5 +92,5 @@ All estimates scaled to match Berlin's known total capacity of 200,000 spots.
 
 ---
 
-**For detailed implementation**, see the Jupyter notebooks in `/notebooks/` directory.
-**For code documentation**, explore the `/src/` modules.
+**For detailed implementation**, see the notebooks in `notebooks/`.
+**For code documentation**, review `src/spatial_analysis.py` and `src/config.py`.
