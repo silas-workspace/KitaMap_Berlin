@@ -1,7 +1,0 @@
-{
-  "include": ["src", "run_analysis.py", "main.py"],
-  "extraPaths": ["src"],
-  "pythonVersion": "3.8",
-  "typeCheckingMode": "basic",
-  "reportAttributeAccessIssue": false
-}
