@@ -14,11 +14,13 @@ be preserved exactly** — this is the #1 constraint for all edits.
 
 ```
 KitaMap_Berlin/
-├── notebooks/              # Analysis notebooks (run in order: 01 → 02 → 03)
+├── notebooks/              # Analysis notebooks (run in order: 01 → 02 → 04 → 03)
 │   ├── 01_daycare_data_processing.ipynb   # OSM ETL + capacity estimation
 │   ├── 02_demographic_forecasting.ipynb   # Prophet/ETS/Ensemble forecasting
-│   └── 03_district_analysis.ipynb         # Coverage analysis + CARTO exports
+│   ├── 03_district_analysis.ipynb         # Coverage analysis + CARTO exports
+│   └── 04_spatial_analysis.ipynb          # OSM extraction + isochrones (wraps src/)
 ├── src/
+│   ├── config.py             # Shared constants: paths, CRS, API limits, capacity target
 │   └── spatial_analysis.py   # Isochrone generation + OSM area extraction (ORS API)
 ├── data/
 │   ├── raw/        # Input data (OSM PBF, population CSV) — do not modify contents
