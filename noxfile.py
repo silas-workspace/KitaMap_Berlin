@@ -14,5 +14,6 @@ def lint(session: nox.Session) -> None:
 @nox.session
 def typecheck(session: nox.Session) -> None:
     """Run pyright type checking."""
-    session.install("pyright", "geopandas-stubs", "pandas-stubs")
+    session.install("-r", "requirements.txt")
+    session.install("pyright", "pandas-stubs")
     session.run("pyright", "src/", "run_analysis.py", "main.py")

@@ -1,19 +1,20 @@
-"""
-Räumliche Analysen für Berliner Kita-Standorte.
+"""Spatial analysis utilities for Berlin daycare center locations.
 
-Dieses Modul führt räumliche Analysen für Kita-Standorte in Berlin durch:
-- Berechnung von Isochronen (Einzugsgebiete) mit OpenRouteService API
-- Extraktion von Grün- und Wasserflächen aus OpenStreetMap-Daten
-- Verarbeitung und Export für weitere Analysen
-
-Author: Silas Pignotti
-Date: 2024
+Provides isochrone generation with the OpenRouteService API and extraction of
+green and water areas from OpenStreetMap data for the KitaMap Berlin project.
 """
 
 import os
 import time
 from pathlib import Path
-from typing import Tuple
+from typing import Optional, Tuple
+
+import geopandas as gpd
+import openrouteservice as ors
+import osmium
+import shapely.wkb as wkblib
+from shapely.geometry import shape
+from tqdm import tqdm
 
 from config import (
     DAYCARE_PROCESSED_FILE,
@@ -27,312 +28,249 @@ from config import (
     RESULTS_DIR,
     WATER_AREAS_FILE,
 )
-import geopandas as gpd
-import openrouteservice as ors
-import osmium
-import shapely.wkb as wkblib
-from shapely.geometry import shape
-from tqdm import tqdm
 
 wkb_factory = osmium.geom.WKBFactory()
 
 
 class OSMAreaExtractor(osmium.SimpleHandler):
-    """
-    Extrahiert Grün- und Wasserflächen aus OpenStreetMap-Daten.
-    
-    Verarbeitet OSM-Elemente und klassifiziert sie basierend auf Tags
-    als Grünflächen oder Wasserflächen.
-    """
-    
-    def __init__(self):
+    """Extract green and water areas from OpenStreetMap data."""
+
+    def __init__(self) -> None:
         super().__init__()
         self.green_areas = []
         self.water_areas = []
-        self.progress = tqdm(desc="Extrahiere OSM-Flächen", unit=" Elemente")
-    
+        self.progress = tqdm(desc="Extracting OSM areas", unit=" elements")
+
     def _extract_geometry(self, element):
-        """Extrahiert Geometrie aus OSM-Element."""
+        """Extract geometry from an OSM element."""
         try:
             if isinstance(element, osmium.osm.Area):
                 return wkblib.loads(wkb_factory.create_multipolygon(element))
-            else:
-                return wkblib.loads(wkb_factory.create_linestring(element))
-        except:
+            return wkblib.loads(wkb_factory.create_linestring(element))
+        except Exception:
             return None
-    
+
     def _is_water_feature(self, tags):
-        """Prüft ob Element eine Wasserfläche ist."""
+        """Return True when an OSM element represents a water feature."""
         return (
-            tags.get('natural') == 'water' or
-            'waterway' in tags or
-            tags.get('landuse') in ['reservoir', 'basin'] or
-            tags.get('water') in ['lake', 'river', 'pond']
+            tags.get("natural") == "water"
+            or "waterway" in tags
+            or tags.get("landuse") in ["reservoir", "basin"]
+            or tags.get("water") in ["lake", "river", "pond"]
         )
-    
+
     def _is_green_feature(self, tags):
-        """Prüft ob Element eine Grünfläche ist."""
+        """Return True when an OSM element represents a green feature."""
         return (
-            tags.get('landuse') in [
-                'grass', 'meadow', 'forest', 'greenfield', 
-                'cemetery', 'recreation_ground'
-            ] or 
-            tags.get('leisure') in [
-                'park', 'garden', 'playground', 'sports_centre', 
-                'pitch', 'golf_course'
-            ] or 
-            tags.get('natural') == 'wood' or 
-            tags.get('amenity') == 'grave_yard'
+            tags.get("landuse")
+            in [
+                "grass",
+                "meadow",
+                "forest",
+                "greenfield",
+                "cemetery",
+                "recreation_ground",
+            ]
+            or tags.get("leisure")
+            in [
+                "park",
+                "garden",
+                "playground",
+                "sports_centre",
+                "pitch",
+                "golf_course",
+            ]
+            or tags.get("natural") == "wood"
+            or tags.get("amenity") == "grave_yard"
         )
-    
-    def _process_element(self, element):
-        """Verarbeitet ein einzelnes OSM-Element."""
+
+    def _process_element(self, element) -> None:
+        """Process a single OSM element."""
         self.progress.update(1)
-        
+
         geometry = self._extract_geometry(element)
         if geometry is None:
             return
-        
+
         tags = dict(element.tags)
-        
         if self._is_water_feature(tags):
             self.water_areas.append(geometry)
         elif self._is_green_feature(tags):
             self.green_areas.append(geometry)
-    
-    def area(self, area):
-        """Handler für Area-Elemente."""
+
+    def area(self, area) -> None:
+        """Handle OSM area elements."""
         self._process_element(area)
-    
-    def way(self, way):
-        """Handler für Way-Elemente.""" 
+
+    def way(self, way) -> None:
+        """Handle OSM way elements."""
         self._process_element(way)
-    
-    def close(self):
-        """Schließt die Extraktion."""
+
+    def close(self) -> None:
+        """Close the extraction progress bar and print a short summary."""
         self.progress.close()
-        print(f"✅ Grünflächen gefunden: {len(self.green_areas)}")
-        print(f"✅ Wasserflächen gefunden: {len(self.water_areas)}")
+        print(f"Green areas extracted: {len(self.green_areas)}")
+        print(f"Water areas extracted: {len(self.water_areas)}")
 
 
 class IsochroneGenerator:
-    """
-    Berechnet Isochronen für Kita-Standorte mit OpenRouteService API.
-    
-    Generiert 500m-Fußweg-Isochronen für alle Kita-Standorte und
-    berücksichtigt API-Limits und Rate-Limiting.
-    """
-    
-    def __init__(self, api_key: str):
-        """
-        Initialisiert den Generator.
-        
-        Args:
-            api_key: OpenRouteService API-Schlüssel
-        """
-        self.client = ors.Client(key=api_key) if api_key != '-' else None
-        
-    def calculate_isochrones(self, daycare_file: Path, output_file: Path) -> gpd.GeoDataFrame:
-        """
-        Berechnet Isochronen für alle Kita-Standorte.
-        
-        Args:
-            daycare_file: Pfad zur Kita-Datei
-            output_file: Ausgabepfad für Ergebnisse
-            
-        Returns:
-            GeoDataFrame mit berechneten Isochronen
-        """
+    """Generate daycare isochrones with the OpenRouteService API."""
+
+    def __init__(self, api_key: str) -> None:
+        """Initialize the OpenRouteService client."""
+        self.client = ors.Client(key=api_key) if api_key != "-" else None
+
+    def calculate_isochrones(
+        self, daycare_file: Path, output_file: Path
+    ) -> gpd.GeoDataFrame:
+        """Calculate isochrones for all daycare locations."""
         if self.client is None:
-            print("⚠️  Kein API-Schlüssel - Isochrone-Berechnung übersprungen")
+            print("No API key provided - skipping isochrone calculation")
             return gpd.GeoDataFrame()
-        
+
         daycare_centers = gpd.read_file(daycare_file).to_crs(EXPORT_CRS)
         geometries, node_ids = [], []
         request_count = 0
-        max_requests = MAX_API_REQUESTS
-        
-        print(f"🚀 Berechne Isochronen für {len(daycare_centers)} Kitas...")
-        
-        with tqdm(total=min(len(daycare_centers), max_requests), desc="Isochronen") as pbar:
+
+        print(f"Calculating isochrones for {len(daycare_centers)} daycare centers...")
+
+        with tqdm(
+            total=min(len(daycare_centers), MAX_API_REQUESTS), desc="Isochrones"
+        ) as pbar:
             batch_start = time.time()
-            
+
             for idx, (_, daycare) in enumerate(daycare_centers.iterrows()):
-                if request_count >= max_requests:
-                    print(f"⚠️  API-Limit ({max_requests}) erreicht")
+                if request_count >= MAX_API_REQUESTS:
+                    print(f"API limit reached ({MAX_API_REQUESTS})")
                     break
-                
+
                 try:
-                    # API-Anfrage
                     result = self.client.isochrones(
                         locations=[[daycare.geometry.x, daycare.geometry.y]],
-                        profile='foot-walking',
+                        profile="foot-walking",
                         range=[ISOCHRONE_RANGE_M],
-                        attributes=['area']
+                        attributes=["area"],
                     )
-                    
-                    geometry = shape(result['features'][0]['geometry'])
+
+                    geometry = shape(result["features"][0]["geometry"])
                     geometries.append(geometry)
                     node_ids.append(daycare.name)
                     request_count += 1
                     pbar.update(1)
-                    
-                    # Rate Limiting: 11 Requests/Minute
+
                     if idx % 11 == 10:
                         elapsed = time.time() - batch_start
                         if elapsed < 60:
                             time.sleep(60 - elapsed)
                         batch_start = time.time()
-                
-                except Exception as e:
-                    print(f"❌ Fehler bei Kita {daycare.name}: {e}")
+
+                except Exception as exc:
+                    print(
+                        f"Error calculating isochrone for daycare {daycare.name}: {exc}"
+                    )
                     continue
-        
-        # Ergebnisse speichern
+
         if geometries:
             isochrones = gpd.GeoDataFrame(
-                {'node_id': node_ids, 'geometry': geometries}, 
-                crs=EXPORT_CRS
+                {"node_id": node_ids, "geometry": geometries}, crs=EXPORT_CRS
             )
-            isochrones.to_file(output_file, driver='GeoJSON')
-            print(f"✅ {len(geometries)} Isochronen gespeichert: {output_file}")
+            isochrones.to_file(output_file, driver="GeoJSON")
+            print(f"Saved {len(geometries)} isochrones to {output_file}")
             return isochrones
-        
+
         return gpd.GeoDataFrame()
 
 
 def remove_overlapping_areas(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """
-    Entfernt Überlappungen zwischen Isochronen.
-    
-    Args:
-        gdf: GeoDataFrame mit Isochronen
-        
-    Returns:
-        GeoDataFrame ohne Überlappungen
-    """
+    """Remove overlaps between isochrone geometries."""
     if len(gdf) == 0:
         return gdf
-    
-    print("🔧 Entferne Überlappungen...")
+
+    print("Removing overlaps...")
     geometries = list(gdf.geometry)
-    
-    for i in tqdm(range(len(geometries)), desc="Überlappungen"):
+
+    for i in tqdm(range(len(geometries)), desc="Removing overlaps"):
         for j in range(i + 1, len(geometries)):
             if geometries[i].intersects(geometries[j]):
                 geometries[i] = geometries[i].difference(geometries[j])
-    
+
     result = gdf.copy()
     result.geometry = geometries
     return result
 
 
 def merge_geometries(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
-    """Vereinigt alle Geometrien zu einer einzigen."""
+    """Merge all geometries into a single feature."""
     if len(gdf) == 0:
         return gdf
-    
+
     unified_geometry = gdf.union_all()
     return gpd.GeoDataFrame(geometry=[unified_geometry], crs=gdf.crs)
 
 
 def extract_osm_areas(osm_file: Path, output_dir: Path) -> Tuple[Path, Path]:
-    """
-    Extrahiert Grün- und Wasserflächen aus OSM-Daten.
-    
-    Args:
-        osm_file: Pfad zur OSM-PBF-Datei
-        output_dir: Ausgabeverzeichnis
-        
-    Returns:
-        Tuple aus (Grünflächen-Pfad, Wasserflächen-Pfad)
-    """
-    print(f"📊 Extrahiere Flächen aus {osm_file}...")
-    
+    """Extract green and water areas from an OSM PBF file."""
+    print(f"Extracting areas from {osm_file}...")
+
     extractor = OSMAreaExtractor()
     extractor.apply_file(str(osm_file))
     extractor.close()
-    
-    # Erstelle GeoDataFrames
+
     green_gdf = gpd.GeoDataFrame(geometry=extractor.green_areas, crs=EXPORT_CRS)
     water_gdf = gpd.GeoDataFrame(geometry=extractor.water_areas, crs=EXPORT_CRS)
-    
-    # Vereinige und speichere
+
     output_dir.mkdir(parents=True, exist_ok=True)
-    
+
     green_path = output_dir / GREEN_AREAS_FILE.name
     water_path = output_dir / WATER_AREAS_FILE.name
-    
+
     if len(green_gdf) > 0:
         green_unified = merge_geometries(green_gdf)
         green_unified.to_file(green_path, driver="GeoJSON")
-        print(f"✅ Grünflächen gespeichert: {green_path}")
-    
+        print(f"Saved green areas to {green_path}")
+
     if len(water_gdf) > 0:
         water_unified = merge_geometries(water_gdf)
         water_unified.to_file(water_path, driver="GeoJSON")
-        print(f"✅ Wasserflächen gespeichert: {water_path}")
-    
+        print(f"Saved water areas to {water_path}")
+
     return green_path, water_path
 
 
-def generate_isochrones(api_key: str = None) -> Path:
-    """
-    Generiert Isochronen für Kita-Standorte.
-    
-    Args:
-        api_key: OpenRouteService API-Schlüssel (optional)
-        
-    Returns:
-        Pfad zur Isochrone-Datei
-    """
+def generate_isochrones(api_key: Optional[str] = None) -> Path:
+    """Generate isochrones for daycare locations."""
     if api_key is None:
-        api_key = os.getenv('OPENROUTESERVICE_API_KEY', '-')
-    
+        api_key = os.getenv("OPENROUTESERVICE_API_KEY", "-")
+
     generator = IsochroneGenerator(api_key)
     output_file = ISOCHRONES_FILE
-    
-    # Berechne Isochronen
-    isochrones = generator.calculate_isochrones(
-        DAYCARE_PROCESSED_FILE,
-        output_file
-    )
-    
-    # Entferne Überlappungen falls Daten vorhanden
+
+    isochrones = generator.calculate_isochrones(DAYCARE_PROCESSED_FILE, output_file)
+
     if len(isochrones) > 0:
         clean_isochrones = remove_overlapping_areas(isochrones)
-        clean_output = ISOCHRONES_CLEAN_FILE
-        clean_isochrones.to_file(clean_output, driver='GeoJSON')
-        print(f"✅ Bereinigte Isochronen: {clean_output}")
-        
-        return clean_output
-    
+        clean_isochrones.to_file(ISOCHRONES_CLEAN_FILE, driver="GeoJSON")
+        print(f"Saved cleaned isochrones to {ISOCHRONES_CLEAN_FILE}")
+        return ISOCHRONES_CLEAN_FILE
+
     return output_file
 
 
-def run_full_analysis(api_key: str = None):
-    """
-    Führt die komplette räumliche Analyse durch.
-    
-    Args:
-        api_key: OpenRouteService API-Schlüssel (optional)
-    """
-    print("🎯 Starte räumliche Analyse für Berliner Kitas\n")
-    
-    # 1. OSM-Flächen extrahieren
-    print("1️⃣ Extrahiere Grün- und Wasserflächen...")
+def run_full_analysis(api_key: Optional[str] = None) -> None:
+    """Run the full spatial analysis pipeline."""
+    print("Starting spatial analysis for Berlin daycare centers\n")
+
+    print("1. Extracting green and water areas...")
     green_path, water_path = extract_osm_areas(OSM_PBF_FILE, RESULTS_DIR)
-    
-    print("\n2️⃣ Generiere Isochronen...")
+
+    print("\n2. Generating isochrones...")
     isochrones_path = generate_isochrones(api_key)
-    
-    print(f"\n✨ Analyse abgeschlossen! Ergebnisse in: {RESULTS_DIR}")
-    print(f"   📍 Grünflächen: {green_path.name}")
-    print(f"   📍 Wasserflächen: {water_path.name}")  
-    print(f"   📍 Isochronen: {isochrones_path.name}")
+
+    print(f"\nAnalysis complete. Results saved in: {RESULTS_DIR}")
+    print(f"   Green areas: {green_path.name}")
+    print(f"   Water areas: {water_path.name}")
+    print(f"   Isochrones: {isochrones_path.name}")
 
 
 if __name__ == "__main__":
-    # Vollständige Analyse durchführen
-    # API-Schlüssel als Umgebungsvariable oder hier eintragen
     run_full_analysis()

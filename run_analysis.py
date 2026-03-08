@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""
-Kommandozeilen-Tool für die räumliche Analyse der Berliner Kitas.
+"""CLI for the KitaMap Berlin spatial analysis pipeline.
 
-Führt die komplette räumliche Analyse durch oder einzelne Schritte.
+Runs the full analysis or individual steps (OSM extraction, isochrone generation).
 
-Verwendung:
-    python run_analysis.py                    # Vollständige Analyse
-    python run_analysis.py --osm-only        # Nur OSM-Extraktion
-    python run_analysis.py --isochrones-only # Nur Isochronen
+Usage:
+    python run_analysis.py                    # Full analysis
+    python run_analysis.py --osm-only         # OSM area extraction only
+    python run_analysis.py --isochrones-only  # Isochrone generation only
 """
 
 import argparse
@@ -15,73 +14,68 @@ import os
 import sys
 from pathlib import Path
 
-# Füge src/ zum Python-Pfad hinzu
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+# Add src/ to path for local imports
+sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from spatial_analysis import run_full_analysis, extract_osm_areas, generate_isochrones, DATA_PATHS
+from config import OSM_PBF_FILE, RESULTS_DIR
+from spatial_analysis import extract_osm_areas, generate_isochrones, run_full_analysis
 
 
-def main():
-    """Hauptfunktion für das CLI."""
+def main() -> None:
+    """CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Räumliche Analyse für Berliner Kita-Standorte",
-        formatter_class=argparse.RawDescriptionHelpFormatter
+        description="Spatial analysis for Berlin daycare locations",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    
+
     parser.add_argument(
-        '--api-key', 
-        type=str, 
+        "--api-key",
+        type=str,
         default=None,
-        help='OpenRouteService API-Schlüssel (oder OPENROUTESERVICE_API_KEY env var)'
+        help="OpenRouteService API key (or OPENROUTESERVICE_API_KEY env var)",
     )
-    
+
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
-        '--osm-only', 
-        action='store_true',
-        help='Nur OSM-Flächen extrahieren'
+        "--osm-only",
+        action="store_true",
+        help="Extract OSM areas only",
     )
     group.add_argument(
-        '--isochrones-only', 
-        action='store_true',
-        help='Nur Isochronen berechnen'
+        "--isochrones-only",
+        action="store_true",
+        help="Calculate isochrones only",
     )
-    
+
     args = parser.parse_args()
-    
-    # API-Schlüssel aus Argumenten oder Umgebungsvariable
-    api_key = args.api_key or os.getenv('OPENROUTESERVICE_API_KEY')
-    
-    print("🏫 KitaMap Berlin - Räumliche Analyse")
+    api_key = args.api_key or os.getenv("OPENROUTESERVICE_API_KEY")
+
+    print("KitaMap Berlin - Spatial Analysis")
     print("=" * 40)
-    
+
     try:
         if args.osm_only:
-            print("📊 Extrahiere nur OSM-Flächen...")
-            extract_osm_areas(DATA_PATHS['osm_data'], DATA_PATHS['results_dir'])
-            
+            print("Extracting OSM areas only...")
+            extract_osm_areas(OSM_PBF_FILE, RESULTS_DIR)
         elif args.isochrones_only:
-            print("📍 Berechne nur Isochronen...")
+            print("Calculating isochrones only...")
             if not api_key:
-                print("⚠️  Warnung: Kein API-Schlüssel gefunden")
-                print("   Setze OPENROUTESERVICE_API_KEY Umgebungsvariable")
-                print("   oder verwende --api-key DEIN_SCHLUESSEL")
+                print("Warning: no API key found")
+                print("Set OPENROUTESERVICE_API_KEY or use --api-key YOUR_KEY")
             generate_isochrones(api_key)
-            
         else:
-            print("🎯 Führe vollständige Analyse durch...")
+            print("Running the full analysis...")
             if not api_key:
-                print("⚠️  Kein API-Schlüssel - Isochronen werden übersprungen")
-                print("   Für vollständige Analyse: OPENROUTESERVICE_API_KEY setzen")
+                print("No API key found - isochrones will be skipped")
+                print("Set OPENROUTESERVICE_API_KEY for the full workflow")
             run_full_analysis(api_key)
-        
-        print("\n✅ Fertig!")
-        
+
+        print("\nDone.")
     except KeyboardInterrupt:
-        print("\n❌ Analyse abgebrochen")
+        print("\nAnalysis interrupted")
         sys.exit(1)
-    except Exception as e:
-        print(f"\n❌ Fehler: {e}")
+    except Exception as exc:
+        print(f"\nError: {exc}")
         sys.exit(1)
 
 
