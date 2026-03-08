@@ -13,21 +13,26 @@ Date: 2024
 import os
 import time
 from pathlib import Path
-from typing import List, Tuple
+from typing import Tuple
 
+from config import (
+    DAYCARE_PROCESSED_FILE,
+    EXPORT_CRS,
+    GREEN_AREAS_FILE,
+    ISOCHRONE_RANGE_M,
+    ISOCHRONES_CLEAN_FILE,
+    ISOCHRONES_FILE,
+    MAX_API_REQUESTS,
+    OSM_PBF_FILE,
+    RESULTS_DIR,
+    WATER_AREAS_FILE,
+)
 import geopandas as gpd
 import openrouteservice as ors
 import osmium
 import shapely.wkb as wkblib
 from shapely.geometry import shape
 from tqdm import tqdm
-
-# Globale Konfiguration
-DATA_PATHS = {
-    'daycare_centers_processed': Path('data/processed/daycare_centers_processed.geojson'),
-    'osm_data': Path('data/raw/berlin-latest.osm.pbf'),
-    'results_dir': Path('data/results')
-}
 
 wkb_factory = osmium.geom.WKBFactory()
 
@@ -142,10 +147,10 @@ class IsochroneGenerator:
             print("⚠️  Kein API-Schlüssel - Isochrone-Berechnung übersprungen")
             return gpd.GeoDataFrame()
         
-        daycare_centers = gpd.read_file(daycare_file).to_crs('EPSG:4326')
+        daycare_centers = gpd.read_file(daycare_file).to_crs(EXPORT_CRS)
         geometries, node_ids = [], []
         request_count = 0
-        max_requests = 450  # API-Limit
+        max_requests = MAX_API_REQUESTS
         
         print(f"🚀 Berechne Isochronen für {len(daycare_centers)} Kitas...")
         
@@ -162,7 +167,7 @@ class IsochroneGenerator:
                     result = self.client.isochrones(
                         locations=[[daycare.geometry.x, daycare.geometry.y]],
                         profile='foot-walking',
-                        range=[500],
+                        range=[ISOCHRONE_RANGE_M],
                         attributes=['area']
                     )
                     
@@ -187,7 +192,7 @@ class IsochroneGenerator:
         if geometries:
             isochrones = gpd.GeoDataFrame(
                 {'node_id': node_ids, 'geometry': geometries}, 
-                crs='EPSG:4326'
+                crs=EXPORT_CRS
             )
             isochrones.to_file(output_file, driver='GeoJSON')
             print(f"✅ {len(geometries)} Isochronen gespeichert: {output_file}")
@@ -249,14 +254,14 @@ def extract_osm_areas(osm_file: Path, output_dir: Path) -> Tuple[Path, Path]:
     extractor.close()
     
     # Erstelle GeoDataFrames
-    green_gdf = gpd.GeoDataFrame(geometry=extractor.green_areas, crs="EPSG:4326")
-    water_gdf = gpd.GeoDataFrame(geometry=extractor.water_areas, crs="EPSG:4326")
+    green_gdf = gpd.GeoDataFrame(geometry=extractor.green_areas, crs=EXPORT_CRS)
+    water_gdf = gpd.GeoDataFrame(geometry=extractor.water_areas, crs=EXPORT_CRS)
     
     # Vereinige und speichere
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    green_path = output_dir / 'berlin_green_areas.geojson'
-    water_path = output_dir / 'berlin_water_areas.geojson'
+    green_path = output_dir / GREEN_AREAS_FILE.name
+    water_path = output_dir / WATER_AREAS_FILE.name
     
     if len(green_gdf) > 0:
         green_unified = merge_geometries(green_gdf)
@@ -285,18 +290,18 @@ def generate_isochrones(api_key: str = None) -> Path:
         api_key = os.getenv('OPENROUTESERVICE_API_KEY', '-')
     
     generator = IsochroneGenerator(api_key)
-    output_file = DATA_PATHS['results_dir'] / 'isochrones.geojson'
+    output_file = ISOCHRONES_FILE
     
     # Berechne Isochronen
     isochrones = generator.calculate_isochrones(
-        DATA_PATHS['daycare_centers_processed'], 
+        DAYCARE_PROCESSED_FILE,
         output_file
     )
     
     # Entferne Überlappungen falls Daten vorhanden
     if len(isochrones) > 0:
         clean_isochrones = remove_overlapping_areas(isochrones)
-        clean_output = DATA_PATHS['results_dir'] / 'isochrones_overlapping.geojson'
+        clean_output = ISOCHRONES_CLEAN_FILE
         clean_isochrones.to_file(clean_output, driver='GeoJSON')
         print(f"✅ Bereinigte Isochronen: {clean_output}")
         
@@ -316,15 +321,12 @@ def run_full_analysis(api_key: str = None):
     
     # 1. OSM-Flächen extrahieren
     print("1️⃣ Extrahiere Grün- und Wasserflächen...")
-    green_path, water_path = extract_osm_areas(
-        DATA_PATHS['osm_data'],
-        DATA_PATHS['results_dir']
-    )
+    green_path, water_path = extract_osm_areas(OSM_PBF_FILE, RESULTS_DIR)
     
     print("\n2️⃣ Generiere Isochronen...")
     isochrones_path = generate_isochrones(api_key)
     
-    print(f"\n✨ Analyse abgeschlossen! Ergebnisse in: {DATA_PATHS['results_dir']}")
+    print(f"\n✨ Analyse abgeschlossen! Ergebnisse in: {RESULTS_DIR}")
     print(f"   📍 Grünflächen: {green_path.name}")
     print(f"   📍 Wasserflächen: {water_path.name}")  
     print(f"   📍 Isochronen: {isochrones_path.name}")
