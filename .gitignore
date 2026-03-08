@@ -168,3 +168,7 @@ Thumbs.db
 *.temp
 temp/
 tmp/ 
+# Pi agent files
+.pi/plans/
+.pi/reviews/
+.pi/LESSONS.md
