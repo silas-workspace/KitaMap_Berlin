@@ -165,6 +165,8 @@ export OPENROUTESERVICE_API_KEY="your_api_key_here"
 - **Statistical Graphics**: Analysis reports with Matplotlib/Seaborn
 - **Jupyter Integration**: Reproducible analysis workflows
 
+For full methodological detail, see [docs/methodology.md](docs/methodology.md).
+
 ## Key Results
 
 ### Current Coverage (2024)
