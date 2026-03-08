@@ -14,49 +14,35 @@
 # ---
 
 # %% [markdown]
-# # Berlin-wide Daycare Supply Analysis – Data Processing and Evaluation
+# # 03 — District Analysis
+# > District-level coverage assessment: supply rates, accessibility, trend categorization, CARTO export.
 #
-# This notebook is part of the **"KitaMap Berlin"** project and covers the complete data processing and analysis of the daycare supply situation in Berlin's districts. Various spatial and statistical data are combined to provide a comprehensive overview of the current and future childcare situation.
-#
-# ## Main Tasks of the Notebook:
-#
-# 1. **Data Integration**  
-#    - Import Berlin district data via a Web Feature Service (WFS)  
-#    - Import and review daycare data (e.g., OSM-based information on locations and capacities)  
-#    - Merge with forecast data on child numbers (0–6 years) for the years 2024, 2029, 2034, and 2039
-#
-# 2. **Daycare Statistics and Supply Calculation**  
-#    - Determine the **number** of daycare centers and **total capacity** per district  
-#    - Calculate **supply rates** based on forecasted child numbers to estimate how well existing places meet future demand
-#
-# 3. **Spatial Analyses**  
-#    - Overlay district geometries with additional **isochrones**, **nature** and **water areas** to determine the percentage **coverage** per district  
-#    - Identify different supply situations regarding accessibility and spatial characteristics
-#
-# 4. **Categorization and Trend Analysis**  
-#    - Classify districts into categories (e.g., *optimally supplied*, *well supplied*, *undersupplied*, etc.)  
-#    - Show **trend** changes between 2024 and 2039 to highlight regions with expected improvement or deterioration
-#
-# 5. **Data Output and Visualization**  
-#    - Export final data in **GeoJSON** format for further processing and display in GIS applications  
-#    - Create charts and maps to illustrate the results
-#
+# ---
+
+# %% [markdown]
+# ## Setup
 
 # %%
-import geopandas as gpd
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 from pathlib import Path
+import sys
+
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 from IPython.display import display
 
-DAYCARE_INPUT = Path("../data/processed/daycare_centers_processed.geojson")
-FORECAST_INPUT = Path("../data/processed/population_forecast_2024_2034.csv")
-WFS_URL = "https://gdi.berlin.de/services/wfs/alkis_bezirke?REQUEST=GetCapabilities&SERVICE=wfs"
-ISOCHRONE_INPUT = Path("../data/results/isochrones.geojson")
-NATURE_INPUT =  Path("../data/results/berlin_green_areas.geojson")
-WATER_INPUT = Path("../data/results/berlin_water_areas.geojson")
-PROJECT_CRS = "EPSG:32633"  # Coordinate Reference System (CRS) for UTM Zone 33N, suitable for Germany
+sys.path.insert(0, str(Path("../src").resolve()))
+
+from config import (
+    DAYCARE_PROCESSED_FILE as DAYCARE_INPUT,
+    GREEN_AREAS_FILE as NATURE_INPUT,
+    ISOCHRONES_FILE as ISOCHRONE_INPUT,
+    POPULATION_FORECAST_FILE as FORECAST_INPUT,
+    PROJ_CRS as PROJECT_CRS,
+    WATER_AREAS_FILE as WATER_INPUT,
+    WFS_URL,
+)
 
 # %% [markdown]
 # ## Data Import and Initial Review
@@ -131,17 +117,17 @@ daycare_stats = (daycare_centers.groupby('suburb')
 
 # Renaming columns
 daycare_stats = daycare_stats.rename(columns={
-    'suburb': 'Bezirk', 
-    'name': 'Anzahl Kitas',
-    'final_capacity': 'Gesamtkapazität'
+    'suburb': 'district', 
+    'name': 'num_daycares',
+    'final_capacity': 'total_capacity'
 })
 
 # Integer capacity
-daycare_stats['Gesamtkapazität'] = daycare_stats['Gesamtkapazität'].astype(int)
+daycare_stats['total_capacity'] = daycare_stats['total_capacity'].astype(int)
 
-# Removing "Unbekannt" and sorting by number of daycare centers
-daycare_stats = (daycare_stats[daycare_stats['Bezirk'] != 'Unbekannt']
-                .sort_values('Anzahl Kitas', ascending=False))
+# Removing "Unknown" and sorting by number of daycare centers
+daycare_stats = (daycare_stats[daycare_stats['district'] != 'Unknown']
+                .sort_values('num_daycares', ascending=False))
 
 # Preview of the calculated statistics
 print("Calculated daycare center statistics per district:")
@@ -165,8 +151,8 @@ display(daycare_stats)
 
 # %%
 # Sorting data by 'Number of Daycare Centers' and 'Total Capacity' in ascending order
-daycare_stats_sorted_centers = daycare_stats.sort_values(by='Anzahl Kitas', ascending=True)
-daycare_stats_sorted_capacity = daycare_stats.sort_values(by='Gesamtkapazität', ascending=True)
+daycare_stats_sorted_centers = daycare_stats.sort_values(by='num_daycares', ascending=True)
+daycare_stats_sorted_capacity = daycare_stats.sort_values(by='total_capacity', ascending=True)
 
 # Creating the figure with more height to accommodate labels
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
@@ -174,12 +160,12 @@ fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 8))
 # Number of daycare centers per district (sorted)
 sns.barplot(
     data=daycare_stats_sorted_centers, 
-    x='Bezirk', 
-    y='Anzahl Kitas', 
-    hue='Bezirk',
+    x='district', 
+    y='num_daycares', 
+    hue='district',
     dodge=False,
     ax=ax1, 
-    palette=sns.color_palette("Blues", n_colors=len(daycare_stats_sorted_centers['Bezirk'].unique())),
+    palette=sns.color_palette("Blues", n_colors=len(daycare_stats_sorted_centers['district'].unique())),
     errorbar=None,
     legend=False
 )
@@ -194,12 +180,12 @@ ax1.tick_params(axis='y', labelsize=10)
 # Total capacity per district (sorted)
 sns.barplot(
     data=daycare_stats_sorted_capacity, 
-    x='Bezirk', 
-    y='Gesamtkapazität', 
-    hue='Bezirk',
+    x='district', 
+    y='total_capacity', 
+    hue='district',
     dodge=False,
     ax=ax2, 
-    palette=sns.color_palette("Reds", n_colors=len(daycare_stats_sorted_capacity['Bezirk'].unique())),
+    palette=sns.color_palette("Reds", n_colors=len(daycare_stats_sorted_capacity['district'].unique())),
     errorbar=None,
     legend=False
 )
@@ -241,7 +227,7 @@ districts_with_stats = gpd.GeoDataFrame(
     berlin_districts.merge(
         daycare_stats,
         left_on='namgem', 
-        right_on='Bezirk',
+        right_on='district',
         how='left'
     ),
     geometry='geometry',
@@ -251,9 +237,9 @@ districts_with_stats = gpd.GeoDataFrame(
 # Prepare forecast data
 # Rename columns from years to more descriptive names
 forecast_renamed = forecast.rename(columns={
-    '2024': 'Prognose_2024',
-    '2029': 'Prognose_2029',
-    '2034': 'Prognose_2034'
+    '2024': 'forecast_2024',
+    '2029': 'forecast_2029',
+    '2034': 'forecast_2034'
 })
 
 # Final merge of all data
@@ -273,20 +259,20 @@ districts_with_all = gpd.GeoDataFrame(
 final_districts = gpd.GeoDataFrame(
     districts_with_all[[
         'namgem',
-        'Anzahl Kitas',
-        'Gesamtkapazität',
-        'Prognose_2024',
-        'Prognose_2029',
-        'Prognose_2034',
+        'num_daycares',
+        'total_capacity',
+        'forecast_2024',
+        'forecast_2029',
+        'forecast_2034',
         'geometry'
-    ]].rename(columns={'namgem': 'Bezirk'}),
+    ]].rename(columns={'namgem': 'district'}),
     geometry='geometry',
     crs=PROJECT_CRS
 )
 
 # Output the data
 print("\nOverview of merged data:")
-display(final_districts[['Bezirk', 'Anzahl Kitas', 'Gesamtkapazität', 'Prognose_2024', 'Prognose_2029']].head())
+display(final_districts[['district', 'num_daycares', 'total_capacity', 'forecast_2024', 'forecast_2029']].head())
 
 print("\nAvailable columns:")
 for col in final_districts.columns:
@@ -341,111 +327,91 @@ for idx, row in final_districts.iterrows():
     coverage_percentages.append(coverage_percentage)
 
 # Add coverage to the DataFrame
-final_districts['Abdeckung'] = coverage_percentages
-final_districts['Abdeckung'] = final_districts['Abdeckung'].round(2)
+final_districts['coverage_pct'] = coverage_percentages
+final_districts['coverage_pct'] = final_districts['coverage_pct'].round(2)
 
-# Output of the results
-print("\n📦 Kita coverage by districts (in %):")
-display(final_districts[['Bezirk', 'Abdeckung']].sort_values('Abdeckung', ascending=False))
+print("\nCoverage by district (%):")
+display(final_districts[['district', 'coverage_pct']].sort_values('coverage_pct', ascending=False))
 
 # %% [markdown]
-# ## Erweiterte Versorgungsanalyse und Trendbetrachtung
+# ### Supply categories and trends
 #
-# In diesem Schritt wird die Versorgungssituation der Bezirke weiter verfeinert, indem für mehrere Zieljahre jeweils **Versorgungsgrade** und zugehörige **Kategorien** berechnet werden. Zusätzlich erfolgt eine **Trendbetrachtung** von 2024 bis 2039:
-#
-# 1. **Versorgungsgrade für 2024, 2029, 2034, 2039**  
-#    - Der Versorgungsgrad ergibt sich aus dem Verhältnis von *Gesamtkapazität* zu *Prognosejahr* in Prozent.  
-#    - Damit lässt sich ablesen, wie viele Kita-Plätze im Verhältnis zur prognostizierten Kinderzahl tatsächlich vorhanden sind.
-#
-# 2. **Kategorisierung**  
-#    - Für 2024 und 2034 werden die Bezirke anhand ihres Versorgungsgrades und ihrer **Abdeckung** in fünf Kategorien eingeteilt: 
-#      1. *Optimal versorgt*  
-#      2. *Gut versorgt*  
-#      3. *Ausreichend versorgt*  
-#      4. *Unterversorgt*  
-#      5. *Kritisch unterversorgt*
-#    - Die Zuordnung erfolgt über Schwellwerte für den Versorgungsgrad und die Abdeckung.  
-#
-# 3. **Trendberechnung (2024 → 2039)**  
-#    - Die Differenz zwischen dem Versorgungsgrad 2024 und dem Versorgungsgrad 2039 liefert die *Entwicklung_2024_2039*.  
-#    - Eine Änderung von mehr als ±5 Prozentpunkten wird als *Verbesserung* oder *Verschlechterung* klassifiziert, während geringere Veränderungen als *stabil* gewertet werden.
-#
-# Durch diese erweiterte Analyse können bestehende Versorgungslücken sowohl aktuell als auch im zukünftigen Verlauf identifiziert werden. Die abschließende Tabelle fasst alle relevanten Kennzahlen (Versorgungsgrade, Kategorie, Entwicklung und Trend) zusammen und bildet damit eine solide Basis für Planung und Entscheidung im Berliner Kita-Bereich.
-#
+# Compute supply rates for the target years and classify districts into broad supply categories using the same threshold logic already present in the notebook.
+# The resulting trend labels summarize whether district-level coverage improves, declines, or remains stable over time.
 
 # %%
-# Calculate coverage rates for all years
-for jahr in [2024, 2029, 2034]:
-    final_districts[f'Versorgungsgrad_{jahr}'] = (
-        final_districts['Gesamtkapazität'] / final_districts[f'Prognose_{jahr}'] * 100
+# NOTE: Column names in the committed GeoJSON files (data/external/) are in German,
+# matching the CARTO dashboard configuration. Re-running this cell will produce
+# English column names. Update CARTO layer configurations before doing so.
+for year in [2024, 2029, 2034]:
+    final_districts[f'supply_rate_{year}'] = (
+        final_districts['total_capacity'] / final_districts[f'forecast_{year}'] * 100
     ).round(2)
-    
-# Categorization with German labels
-kategorie_mapping = {
-    'Optimal versorgt': lambda row: row['Versorgungsgrad_2024'] >= 95 and row['Abdeckung'] >= 80,
-    'Gut versorgt': lambda row: row['Versorgungsgrad_2024'] >= 85 and row['Abdeckung'] >= 70,
-    'Schlecht versorgt': lambda row: row['Versorgungsgrad_2024'] >= 75 and row['Abdeckung'] >= 60,
-    'Unterversorgt': lambda row: row['Versorgungsgrad_2024'] >= 65,
-    'Kritisch unterversorgt': lambda row: True  # Default case
+
+category_mapping = {
+    'Optimal': lambda row: row['supply_rate_2024'] >= 95 and row['coverage_pct'] >= 80,
+    'Good': lambda row: row['supply_rate_2024'] >= 85 and row['coverage_pct'] >= 70,
+    'Insufficient': lambda row: row['supply_rate_2024'] >= 75 and row['coverage_pct'] >= 60,
+    'Under-supplied': lambda row: row['supply_rate_2024'] >= 65,
+    'Critical': lambda row: True  # Default case
 }
 
-kategorie_mapping_2034 = {
-    'Optimal versorgt': lambda row: row['Versorgungsgrad_2034'] >= 95 and row['Abdeckung'] >= 80,
-    'Gut versorgt': lambda row: row['Versorgungsgrad_2034'] >= 85 and row['Abdeckung'] >= 70,
-    'Schlecht versorgt': lambda row: row['Versorgungsgrad_2034'] >= 75 and row['Abdeckung'] >= 60,
-    'Unterversorgt': lambda row: row['Versorgungsgrad_2034'] >= 65,
-    'Kritisch unterversorgt': lambda row: True  # Default case
+category_mapping_2034 = {
+    'Optimal': lambda row: row['supply_rate_2034'] >= 95 and row['coverage_pct'] >= 80,
+    'Good': lambda row: row['supply_rate_2034'] >= 85 and row['coverage_pct'] >= 70,
+    'Insufficient': lambda row: row['supply_rate_2034'] >= 75 and row['coverage_pct'] >= 60,
+    'Under-supplied': lambda row: row['supply_rate_2034'] >= 65,
+    'Critical': lambda row: True  # Default case
 }
 
 # Categorization for 2024
-final_districts['Kategorie_2024'] = final_districts.apply(
+final_districts['category_2024'] = final_districts.apply(
     lambda row: next(
-        kategorie for kategorie, condition in kategorie_mapping.items() 
+        category for category, condition in category_mapping.items() 
         if condition(row)
     ),
     axis=1
 )
 
 # Categorization for 2034
-final_districts['Kategorie_2034'] = final_districts.apply(
+final_districts['category_2034'] = final_districts.apply(
     lambda row: next(
-        kategorie for kategorie, condition in kategorie_mapping_2034.items() 
+        category for category, condition in category_mapping_2034.items() 
         if condition(row)
     ),
     axis=1
 )
 
 # Trend calculation (Change 2024 to 2034)
-final_districts['Entwicklung_2024_2034'] = (
-    final_districts['Versorgungsgrad_2034'] - final_districts['Versorgungsgrad_2024']
+final_districts['change_2024_2034'] = (
+    final_districts['supply_rate_2034'] - final_districts['supply_rate_2024']
 ).round(2)
 
 # Trend categorization with German labels
 trend_mapping = {
-    'Verbesserung': lambda x: x > 5,
-    'Verschlechterung': lambda x: x < -5,
-    'Stabil': lambda x: True  # Default case
+    'Improving': lambda x: x > 5,
+    'Declining': lambda x: x < -5,
+    'Stable': lambda x: True  # Default case
 }
 
 # Trend categorization
-final_districts['Trend_2024_2034'] = final_districts['Entwicklung_2024_2034'].apply(
+final_districts['trend_2024_2034'] = final_districts['change_2024_2034'].apply(
     lambda x: next(
         trend for trend, condition in trend_mapping.items()
         if condition(x)
     )
 )
 
-# Output for verification
-print("\n📊 Übersicht der Versorgungssituation:")
+print("\nDistrict supply overview:")
 display(final_districts[[
-    'Bezirk', 
-    'Versorgungsgrad_2024',
-    'Abdeckung',
-    'Kategorie_2024',
-    'Entwicklung_2024_2034',
-    'Trend_2024_2034',
-    'Kategorie_2034',
-]].sort_values('Versorgungsgrad_2024', ascending=False))
+    'district', 
+    'supply_rate_2024',
+    'coverage_pct',
+    'category_2024',
+    'change_2024_2034',
+    'trend_2024_2034',
+    'category_2034',
+]].sort_values('supply_rate_2024', ascending=False))
 
 # %% [markdown]
 # ## Data Output and Visualization
@@ -463,27 +429,29 @@ display(final_districts[[
 #
 
 # %%
-# Define output directory and files
+# NOTE: Column names in the committed GeoJSON files (data/external/) are in German,
+# matching the CARTO dashboard configuration. Re-running this cell will produce
+# English column names. Update CARTO layer configurations before doing so.
 output_dir = Path("../data/external")
 output_files = {
     'base': {
         'name': 'daycare_coverage_base.geojson',
         'columns': [
-            'Bezirk', 'geometry', 'Anzahl Kitas', 'Gesamtkapazität',
-            'Abdeckung', 'Prognose_2024', 'Versorgungsgrad_2024'
+            'district', 'geometry', 'num_daycares', 'total_capacity',
+            'coverage_pct', 'forecast_2024', 'supply_rate_2024'
         ]
     },
-    'kategorie': {
+    'category': {
         'name': 'daycare_coverage_category_2024.geojson',
-        'columns': ['Bezirk', 'geometry', 'Kategorie_2024']
+        'columns': ['district', 'geometry', 'category_2024']
     },
     'trend': {
         'name': 'daycare_coverage_trend_2024_2034.geojson',
-        'columns': ['Bezirk', 'geometry', 'Trend_2024_2034']
+        'columns': ['district', 'geometry', 'trend_2024_2034']
     },
-    'kategorie_2034': {
+    'category_2034': {
         'name': 'daycare_coverage_category_2034.geojson',
-        'columns': ['Bezirk', 'geometry', 'Kategorie_2034']
+        'columns': ['district', 'geometry', 'category_2034']
     }
 }
 
@@ -506,9 +474,9 @@ for key, file_info in output_files.items():
     # Verify file creation and print info
     if output_path.exists():
         file_size = output_path.stat().st_size / 1024  # Convert to KB
-        print(f"✅ {file_info['name']} created successfully")
-        print(f"   📍 Size: {file_size:.1f} KB")
-        print(f"   📍 Number of features: {len(gdf)}")
-        print(f"   📍 Columns: {', '.join(gdf.columns)}\n")
+        print(f"{file_info['name']} created successfully")
+        print(f"   Size: {file_size:.1f} KB")
+        print(f"   Number of features: {len(gdf)}")
+        print(f"   Columns: {', '.join(gdf.columns)}\n")
     else:
-        print(f"❌ Error creating {file_info['name']}")
+        print(f"Error creating {file_info['name']}")

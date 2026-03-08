@@ -14,91 +14,66 @@
 # ---
 
 # %% [markdown]
-# # Population Forecast for Children Aged 0–6 Years in Berlin
+# # 02 — Demographic Forecasting
+# > Population forecast for children aged 0–6 by district (2024–2034) using ETS, Prophet, and Ensemble.
 #
-# This notebook is part of the **"KitaMap Berlin"** project and demonstrates how historical child numbers per district are processed, analyzed, and projected using various time series models. The goal is to derive reliable forecasts for the development of child numbers (0–6 years) up to 2034. These data feed into the overall view of the supply situation with daycare places and thus form an important basis for needs-based planning and decisions.
-#
-# ## Main Tasks of the Notebook:
-#
-# 1. **Data Integration and Historical Analysis**  
-#    - Import and filter data on child numbers (years 2015–2024)  
-#    - Initial visual analysis to illustrate trends in the districts
-#
-# 2. **Model Selection and Forecast Creation**  
-#    - Application of various forecasting models (Exponential Smoothing, Prophet)  
-#    - Development of a combined ensemble model to improve accuracy
-#
-# 3. **Model Evaluation and Result Preparation**  
-#    - Calculation of error metrics (RMSE, MAE, MAPE) for objective model assessment  
-#    - Transfer of final forecast values into a structured dataset and CSV export  
-#    - Visualization to directly compare historical and forecasted developments
-#
-# These forecast results support the planning of daycare capacities by providing early indications of potential bottlenecks or increasing demand in certain districts. Thus, the notebook makes a significant contribution to the forward-looking design of Berlin's daycare landscape.
-#
-
-# %%
-# Import necessary libraries  
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-from pathlib import Path
-from prophet import Prophet
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-
-# Configure constants
-INPUT_PATH = Path("../data/raw/population_development_2015_2024.csv")
-OUTPUT_PATH = Path("../data/processed/population_forecast_2024_2034.csv")
+# ---
 
 # %% [markdown]
-# ## Development of Child Numbers (2015–2024) and Framework for Forecasts
-#
-# In this section, the historically recorded child numbers (0–6 years) per Berlin district are read from a CSV file, visually processed, and prepared for further forecasts:
-#
-# 1. **Data Import**  
-#    The CSV data are filtered so that only the district name and the annual values from 2015 to 2024 remain.
-#
-# 2. **Visualization**  
-#    A line chart shows the temporal development of child numbers per district. Different colored lines and an external legend provide a clear comparison between the districts.
-#
-# 3. **Forecast Framework**  
-#    For the future years (2024, 2029, 2034, 2039), a new DataFrame is created. The values for 2024 are taken directly from the historical data as a starting point. This creates an initial framework for the later projection of child numbers.
-#
+# ## Setup
 
 # %%
-# Load historical data
-df = pd.read_csv(INPUT_PATH)
-year_columns = [str(year) for year in range(2015, 2025)]  # Years from 2015-2024
-df = df[['Bezirk'] + year_columns]  # District + years in chronological order
+from math import sqrt
+from pathlib import Path
+import sys
 
-# Plotting Setup
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+from prophet import Prophet
+from sklearn.metrics import mean_absolute_error, mean_squared_error
+from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
+sys.path.insert(0, str(Path("../src").resolve()))
+
+from config import POPULATION_FILE as INPUT_PATH, POPULATION_FORECAST_FILE as OUTPUT_PATH
+
+# %% [markdown]
+# ## 1. Data Loading
+#
+# Load the historical district-level population series for children aged 0–6 and prepare the forecast frame.
+# The initial chart provides a quick sanity check on the observed trends before modeling.
+
+# %%
+df = pd.read_csv(INPUT_PATH)
+year_columns = [str(year) for year in range(2015, 2025)]
+df = df[['Bezirk'] + year_columns]
+
 plt.figure(figsize=(15, 8))
 sns.set_style("whitegrid")
 
-# Create a nice color palette for the districts
 colors = sns.color_palette("husl", n_colors=len(df))
 
-# Plot for each district
 for idx, row in df.iterrows():
     district = row['Bezirk']
-    values = row[year_columns].values  # Now we can directly take the values
+    values = row[year_columns].values
     plt.plot(year_columns, values, marker='o', label=district, color=colors[idx], linewidth=2)
 
-# Plot Layout
 plt.title('Development of Child Numbers 2015-2024', fontsize=14, pad=20)
 plt.xlabel('Year', fontsize=12)
 plt.ylabel('Number of Children', fontsize=12)
 plt.xticks(rotation=45)
 
-# Add thousand separators to the Y-axis
 plt.gca().yaxis.set_major_formatter(plt.FuncFormatter(lambda x, p: format(int(x), ',')))
 
-# Legend outside the plot
-plt.legend(bbox_to_anchor=(1.05, 1), 
-            loc='upper left', 
-            borderaxespad=0.,
-            title='Districts',
-            frameon=True)
+plt.legend(
+    bbox_to_anchor=(1.05, 1),
+    loc='upper left',
+    borderaxespad=0.0,
+    title='Districts',
+    frameon=True,
+)
 
 plt.tight_layout()
 plt.show()
@@ -115,39 +90,25 @@ print(results)
 
 
 # %% [markdown]
-# ## Forecast Error Metrics and Model Evaluation
+# ### Error metrics and evaluation helpers
 #
-# In this section, three functions are first defined to quantify forecast errors. These metrics enable an objective evaluation of different forecasting models:
-#
-# 1. **RMSE (Root Mean Squared Error)**  
-#    Provides the average deviation of the forecasts squared by taking the square root of the mean of the squared errors.
-#
-# 2. **MAE (Mean Absolute Error)**  
-#    Indicates the average deviation of the forecasts in absolute terms.
-#
-# 3. **MAPE (Mean Absolute Percentage Error)**  
-#    Measures the percentage deviation between predicted and actual values, showing how many percent the model is off on average.
-#
-# Additionally, the target years for the forecasts (2029, 2034, 2039) are defined and recorded in a new DataFrame **all_predictions**. This DataFrame serves as a structured overview for the forecast results of the three models **ETS**, **Prophet**, and **Ensemble**.  
-#
-# Finally, a function **evaluate_model** is defined, which compares the predicted values of a model for a specific district with the actual values and calculates the above error metrics. The results are summarized in a dictionary and can then be used for comparisons and evaluations.
-#
+# Define a few standard forecast error metrics and a shared evaluation helper.
+# These values are reused for ETS, Prophet, and the ensemble comparison.
 
 # %%
 def calculate_rmse(y_true, y_pred):
-    # Calculate the root mean squared error
     return sqrt(mean_squared_error(y_true, y_pred))
 
+
 def calculate_mae(y_true, y_pred):
-    # Calculate the mean absolute error
     return mean_absolute_error(y_true, y_pred)
 
+
 def calculate_mape(y_true, y_pred):
-    # Calculate the mean absolute percentage error
     return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
 
+
 def evaluate_model(model_name, y_true, y_pred, bezirk):
-    # Evaluate the model performance
     return {
         'Model': model_name,
         'Bezirk': bezirk,
@@ -174,12 +135,9 @@ all_predictions = pd.DataFrame(
 evaluation_results = []
 
 # %% [markdown]
-# ## Exponential Smoothing Forecast and Model Evaluation
+# ### Exponential Smoothing
 #
-# In this section, the Exponential Smoothing method is applied to the child numbers of all Berlin districts. For each district, the data are first split into training data (all but the last two values) and test data (the last two values). The model is then trained and creates a forecast for 16 future time points, from which the values for the defined forecast years (e.g., 2029, 2034, 2039) are taken.  
-#
-# For evaluation, a separate model is fitted again with the training data and applied to the test data. The forecast quality is determined using the previously defined metrics **RMSE**, **MAE**, and **MAPE** to enable an objective comparison between predicted and actual values. The results are summarized in a DataFrame and grouped by the mean of all error metrics.
-#
+# Fit an ETS model for each district, store the forecast years, and evaluate the holdout fit on the last two observed values.
 
 # %%
 # Exponential Smoothing for each district
@@ -218,12 +176,10 @@ ets_eval = pd.DataFrame(evaluation_results)
 print(ets_eval.groupby('Model')[['RMSE', 'MAE', 'MAPE']].mean())
 
 # %% [markdown]
-# ## Prophet-Vorhersage und Modellbewertung
+# ### Prophet
 #
-# Auch für das **Prophet**-Modell wird zunächst die zeitliche Entwicklung der Kinderzahlen pro Bezirk herangezogen. Ausgehend von den historischen Werten (2015–2024) werden entsprechende Zeitstempel erstellt, die Prophet als Eingabe dienen. Danach wird das Modell trainiert und für die definierten Vorhersagejahre (etwa 2029, 2034 und 2039) eine Prognose erzeugt.
-#
-# Für die Evaluierung wird das Modell auf einen verkürzten Datensatz (ohne die letzten beiden Werte) fitten und die Performance anhand der verbleibenden zwei Testpunkte messen. Die vorhergesagten Werte werden mit den tatsächlichen verglichen und durch **RMSE**, **MAE** und **MAPE** quantifiziert. Abschließend fasst ein DataFrame die Fehlermetriken je Bezirk zusammen, was einen direkten Vergleich der Modellgenauigkeit ermöglicht.
-#
+# Fit a Prophet model per district and evaluate it on the same short holdout window used for ETS.
+# This keeps the comparison consistent across forecasting approaches.
 
 # %%
 # Prophet for each district
@@ -286,11 +242,10 @@ prophet_eval = pd.DataFrame(evaluation_results)
 print(prophet_eval[prophet_eval['Model'] == 'Prophet'].groupby('Model')[['RMSE', 'MAE', 'MAPE']].mean())
 
 # %% [markdown]
-# ## Prophet Forecast and Model Evaluation
+# ### Ensemble
 #
-# This section applies the Prophet forecasting model to the child numbers in each Berlin district. The historical data are split into training and test sets, and the model is trained to predict future values for the defined forecast years (2029, 2034, 2039).
-#
-# The model's performance is evaluated using the previously defined error metrics (RMSE, MAE, MAPE), comparing the predicted values to the actual test data. Results are summarized for each district and model, providing a basis for comparison and further analysis.
+# Combine ETS and Prophet forecasts with weights derived from their mean MAPE.
+# The ensemble serves as the final forecast written to the output table.
 
 # %%
 # Method 3: Ensemble
@@ -358,11 +313,10 @@ for year in forecast_years:
     results[year] = all_predictions[f'Ensemble_{year}']
 
 # %% [markdown]
-# ## Ensemble Model and Final Forecasts
+# ## Results / Summary
 #
-# In this section, an ensemble model is created by combining the results of the Exponential Smoothing and Prophet models. The ensemble approach aims to improve forecast accuracy by leveraging the strengths of both models.
-#
-# The final forecasts for each district and year are calculated, and the results are exported to a CSV file for further use. Visualizations compare the historical and forecasted child numbers, providing insights into future trends and potential planning needs for daycare capacities in Berlin.
+# Review the aggregated model metrics and compare the best-performing model per district.
+# The ensemble output is then prepared for export.
 
 # %%
 # Convert Evaluation Results to DataFrame
@@ -378,14 +332,11 @@ best_models = eval_df.loc[eval_df.groupby('Bezirk')['MAPE'].idxmin()]
 print(best_models[['Bezirk', 'Model', 'MAPE']])
 
 # %% [markdown]
-# ## Summary and Outlook
+# ## Export
 #
-# This final section summarizes the main findings of the demographic forecasting analysis. The results provide valuable input for planning daycare capacities and identifying districts with potential future bottlenecks or increased demand.
-#
-# The notebook demonstrates the use of time series models for population forecasting and highlights the importance of data-driven decision-making in urban planning. Future work may include refining the models, incorporating additional data sources, and extending the forecasts to other age groups or regions.
+# Final district forecasts are written to `data/processed/population_forecast_2024_2034.csv`.
 
 # %%
-# Round results to whole numbers and save
 results = results.astype(int)
 
 # Save results as CSV

@@ -14,101 +14,65 @@
 # ---
 
 # %% [markdown]
-# # Berlin Daycare Capacity Analysis - Data Processing and Estimation
+# # 01 — Daycare Data Processing
+# > ETL from OpenStreetMap: load, clean, estimate missing capacities, export.
 #
-# This notebook is part of the **"KitaMap Berlin"** project and is used for processing and analyzing daycare center data from OpenStreetMap (OSM). The main goal is to create a complete dataset of Berlin daycare centers with their capacities, serving as a basis for further supply analyses.
-#
-# ## Main Tasks of the Notebook:
-#
-# 1. **Data Integration**: 
-#   - Import OSM daycare data and Berlin district boundaries
-#   - Spatially assign daycare centers to districts
-#
-# 2. **Capacity Estimation**:
-#   - Analyze known capacity values
-#   - Develop various estimation models for missing capacities:
-#     - Area-based regression for polygon geometries
-#     - District-specific median estimation for point geometries
-#   - Quality assurance through outlier detection and handling
-#
-# 3. **Data Validation**:
-#   - Scale estimates to known total capacity
-#   - Statistical analyses and visualizations for plausibility checks
-#
-# The resulting dataset forms the basis for analyzing the spatial distribution of daycare places and identifying possible supply gaps in Berlin.
-
-# %%
-# Import necessary libraries
-import geopandas as gpd
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-import statsmodels.api as sm
-from pathlib import Path
-
-# Define constants
-GEOJSON_PATH = Path("../data/raw/daycare_centers_osm.geojson")  # Path to the raw daycare data in GeoJSON format
-WFS_URL = "https://gdi.berlin.de/services/wfs/alkis_bezirke?REQUEST=GetCapabilities&SERVICE=wfs"  # URL for the Web Feature Service (WFS) for Berlin districts
-OUTPUT_FILE = Path("../data/processed/daycare_centers_processed.geojson")  # Path for the processed daycare data output
-PROJ_CRS = "EPSG:32633"  # Coordinate Reference System (CRS) for UTM Zone 33N, suitable for Germany
-TARGET_CAPACITY = 200_000  # Target capacity for Berlin
+# ---
 
 # %% [markdown]
-# ## Loading the Data Foundations for KitaVision Analysis
-#
-# In this first step, we load two key datasets that form the basis for our analysis of daycare provision in Berlin:
-#
-# * **Daycare Centers in Berlin**: From OpenStreetMap, we obtain detailed location data for all recorded daycare centers in Berlin. These data are in GeoJSON format and include important attributes such as names and, if available, capacities of the facilities.
-# * **Berlin District Boundaries**: Through a Web Feature Service (WFS), we access the official administrative boundaries of Berlin's districts. These geodata later enable district-specific analysis of daycare provision.
-#
-# The first rows of both datasets are displayed to gain an initial overview of the available information and to check data quality.
-#
-#
+# ## Setup
 
 # %%
-# Load Kita data from GeoJSON file
+from pathlib import Path
+import sys
+
+import geopandas as gpd
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import seaborn as sns
+import statsmodels.api as sm
+
+sys.path.insert(0, str(Path("../src").resolve()))
+
+from config import (
+    DAYCARE_OSM_FILE as GEOJSON_PATH,
+    DAYCARE_PROCESSED_FILE as OUTPUT_FILE,
+    PROJ_CRS,
+    TARGET_CAPACITY,
+    WFS_URL,
+)
+
+# %% [markdown]
+# ## 1. Data Loading
+#
+# Load the raw daycare GeoJSON and the Berlin district boundaries from the WFS endpoint.
+# The preview confirms that both inputs are available and structurally plausible before processing.
+
+# %%
 gdf = gpd.read_file(GEOJSON_PATH)
-# Load Berlin districts data from Web Feature Service (WFS) URL
 berlin_districts = gpd.read_file(WFS_URL)
 
-# Display an overview of the data
-print("\nKita Data:")
+print("\nDaycare data:")
 display(gdf.head())
-print("\nDistrict Data:")
+print("\nDistrict data:")
 display(berlin_districts.head())
 
 # %% [markdown]
-# ## Data Preparation and Initial Spatial Visualization
+# ### Cleaning and spatial assignment
 #
-# In this phase, we prepare the raw data for further analysis and create an initial cartographic overview:
-#
-# 1. **Standardization of Geographic Reference Systems**:
-# The data are transformed into the UTM coordinate system (Zone 33N). This enables precise distance calculations in meters, which are essential for later accessibility analyses.
-#
-# 2. **Data Cleaning**:
-# - Missing values are uniformly marked as NaN
-# - For daycare centers without a name, "unknown" is entered
-# - Capacity values are converted to a numeric format
-#
-# 3. **Spatial Assignment**:
-# Through a spatial join, each daycare center is assigned to the corresponding Berlin district. This later enables district-specific evaluations of the supply situation.
-#
-# 4. **Map Visualization**:
-# The final visualization shows the spatial distribution of all daycare locations (red dots) across Berlin's districts. This overview map provides a first impression of the spatial distribution of childcare facilities in the city and already reveals differences in supply density.
+# Convert the raw inputs to a common projected CRS, standardize missing values, and attach each daycare center to its district.
+# The quick map provides a visual sanity check before capacity estimation.
 
 # %%
-# Transform coordinate reference system (CRS) to UTM Zone 33N
 if gdf.crs.is_geographic:
     gdf = gdf.to_crs(PROJ_CRS)
 berlin_districts = berlin_districts.to_crs(gdf.crs)
 
-# Basic data cleaning: replace None with NaN, fill missing names, convert capacity to numeric
 gdf = gdf.replace({None: np.nan})
-gdf['name'] = gdf['name'].fillna("unbekannt")
+gdf['name'] = gdf['name'].fillna("unknown")
 gdf['capacity'] = pd.to_numeric(gdf['capacity'], errors='coerce')
 
-# Perform spatial join to associate each daycare center with its district
 gdf = gpd.sjoin(
     gdf,
     berlin_districts[['geometry', 'namgem']], 
@@ -116,11 +80,9 @@ gdf = gpd.sjoin(
     predicate="within"
 )
 
-# Update district information and clean up redundant columns
 gdf['suburb'] = gdf['namgem']
 gdf = gdf.drop(columns=['namgem', 'index_right'])
 
-# Create visualization of daycare centers on district map
 fig, ax = plt.subplots(figsize=(12, 8))
 berlin_districts.plot(ax=ax, edgecolor='black', facecolor='none')
 gdf.plot(ax=ax, color='red', markersize=1)
@@ -129,29 +91,15 @@ plt.axis('off')
 plt.show()
 
 # %% [markdown]
-# ## Analysis of Daycare Geometries and Capacities
+# ### Geometry split and known capacities
 #
-# The OpenStreetMap data contain two different types of daycare geometries that must be analyzed separately:
-#
-# 1. **Point Data (Nodes)**:
-# These represent daycare centers that are simply recorded as location points. They make up the majority of entries and are typical for smaller facilities.
-#
-# 2. **Area Data (Polygons)**:
-# These show daycare centers where the actual building footprints or property areas have been mapped. This is often the case for larger facilities. For further analysis, these areas are converted to centroids.
-#
-# The distribution of known capacities is shown in a histogram. This visualization provides important insights into:
-# - The typical size ranges of Berlin daycare centers
-# - Possible outliers or unusual values
-# - The range of care capacities
-#
-# This information is valuable for later estimation of missing capacity values and for assessing the supply situation.
+# Separate point features from polygon features because they need different estimation strategies.
+# The histogram of known capacities serves as a baseline check before prediction.
 
 # %%
-# Split data by geometry type into points (nodes) and polygons
 nodes = gdf[gdf.geometry.type == 'Point'].copy()
 polygons = gdf[gdf.geometry.type == 'Polygon'].copy()
 
-# Calculate area for polygons and convert polygon geometries to centroids
 polygons['area'] = polygons.geometry.area.round().astype(float)
 polygons['geometry'] = polygons.geometry.centroid
 
@@ -172,31 +120,14 @@ plt.ylabel('Count')
 plt.show()
 
 # %% [markdown]
-# ## Capacity Estimation Based on Building Areas
+# ### Polygon-based capacity estimation
 #
-# For daycare centers mapped as areas but lacking capacity information, we develop a statistical model to estimate the number of care places. This approach is based on the assumption that the building area of a daycare center is systematically related to its care capacity.
-#
-# The analysis is carried out in several steps:
-#
-# 1. **Correlation Analysis**:
-# A scatter plot shows the relationship between building area and known capacities. This provides a first visual impression of the relationship between these variables.
-#
-# 2. **Regression Model**:
-# Using linear regression, the mathematical relationship between area and capacity is modeled. The regression statistics provide information about the quality of the model and the reliability of the estimates.
-#
-# 3. **Capacity Prediction**:
-# For daycare centers without capacity information, care places are estimated based on their area. Confidence intervals are also calculated to quantify the uncertainty of the estimates.
-#
-# 4. **Outlier Treatment**:
-# Unusually high estimated values are identified using statistical methods (IQR method) and replaced with more realistic values. This prevents unrealistic overestimations of capacities.
-#
-# The final visualization shows the estimated capacities, with potential outliers marked in red. These cleaned estimates complete our dataset for further analysis of the supply situation.
+# Fit a simple regression from building area to capacity for polygon daycare features with known values.
+# Use that model to estimate missing capacities and cap extreme predictions with a basic outlier rule.
 
 # %%
-# Filter data to only include polygons with valid capacity and area values
 valid_data = polygons[polygons['capacity'].notna() & polygons['area'].notna()]
 
-# Create scatter plot to visualize relationship between area and capacity
 plt.figure(figsize=(10, 6))
 plt.scatter(valid_data['area'], valid_data['capacity'])
 plt.xlabel('Area (m²)') 
@@ -204,12 +135,9 @@ plt.ylabel('Capacity')
 plt.title('Relationship between Area and Capacity')
 plt.show()
 
-# Perform linear regression analysis
-# Reshape area values and add constant term for regression
 X = valid_data['area'].values.reshape(-1, 1)
 X = sm.add_constant(X)
 y = valid_data['capacity'].values
-# Fit ordinary least squares regression model
 model = sm.OLS(y, X).fit()
 
 print("\nRegression Statistics:")
@@ -267,27 +195,10 @@ plt.legend()
 plt.show()
 
 # %% [markdown]
-# ## District-Specific Capacity Estimation for Point Daycare Centers
+# ### Point-based capacity estimation
 #
-# For daycare centers recorded only as points and lacking capacity information, a district-specific estimation method is developed. This takes local differences in daycare sizes into account:
-#
-# 1. **Calculation of Reference Values**:
-# - For each district, the median of known capacities is determined
-# - Additionally, a citywide median is calculated as a fallback
-# - These values serve as the basis for the estimates
-#
-# 2. **Estimation Methodology**:
-# - For missing values, the respective district median is used as the basis
-# - If no reference values are available for a district, the overall Berlin median is used
-# - A random variation of ±15% is added to create realistic dispersion
-# - Values are limited to a plausible range of 10 to 200 places
-#
-# 3. **Visualization of Results**:
-# - A boxplot shows the distribution of estimated capacities by district
-# - A stacked histogram visualizes the overall distribution of estimated values
-# - Outliers are shown separately
-#
-# This localized estimation method takes district-specific differences in daycare size structure into account and thus produces more realistic capacity estimates than a citywide uniform value.
+# For daycare points without known capacities, use district medians with a small random variation and a plausible min/max clamp.
+# This keeps the estimation strategy simple while reflecting local differences in daycare size.
 
 # %%
 # Calculate district-wise medians
@@ -295,61 +206,43 @@ known_capacities = pd.concat([
     nodes[nodes['capacity'].notna()][['capacity', 'suburb']],
     polygons[['capacity', 'suburb']]
 ])
-global_median = known_capacities['capacity'].median()  # Calculate the global median
-district_medians = known_capacities.groupby('suburb')['capacity'].median()  # Calculate district-wise medians
+global_median = known_capacities['capacity'].median()
+district_medians = known_capacities.groupby('suburb')['capacity'].median()
 
-# Estimate missing capacities
 nodes_missing = nodes[nodes['capacity'].isna()].copy()
-nodes_missing['predicted_capacity'] = np.nan  # Initialize a column for predicted capacities
+nodes_missing['predicted_capacity'] = np.nan
 
 for suburb in nodes_missing['suburb'].unique():
     mask = nodes_missing['suburb'] == suburb
-    n_samples = mask.sum()  # Count the number of samples for the current suburb
-    
-    # Determine the base capacity for the current suburb
+    n_samples = mask.sum()
+
     base_capacity = district_medians.get(suburb, global_median)
-    variation = np.random.uniform(0.85, 1.15, n_samples)  # Generate random variation
-    capacities = (base_capacity * variation).round()  # Calculate capacities with variation
-    capacities = np.clip(capacities, 10, 200)  # Clip capacities within a reasonable range
-    
-    nodes_missing.loc[mask, 'predicted_capacity'] = capacities  # Assign predicted capacities
+    variation = np.random.uniform(0.85, 1.15, n_samples)
+    capacities = (base_capacity * variation).round()
+    capacities = np.clip(capacities, 10, 200)
 
-nodes.loc[nodes['capacity'].isna(), 'predicted_capacity'] = nodes_missing['predicted_capacity']  # Transfer predictions back to the main DataFrame
+    nodes_missing.loc[mask, 'predicted_capacity'] = capacities
 
-# Visualization of estimated capacities
+nodes.loc[nodes['capacity'].isna(), 'predicted_capacity'] = nodes_missing['predicted_capacity']
+
 plt.figure(figsize=(10, 6))
-sns.boxplot(x='suburb', y='predicted_capacity', data=nodes_missing)  # Boxplot for visualizing estimated capacities by suburb
+sns.boxplot(x='suburb', y='predicted_capacity', data=nodes_missing)
 plt.xticks(rotation=90)
 plt.title('Estimated Capacities by District')
 plt.xlabel('District')
 plt.ylabel('Estimated Capacity')
 plt.show()
 
-# Distribution of predicted capacities
 plt.figure(figsize=(10, 6))
-sns.histplot(data=missing_capacity, x='predicted_capacity', hue='is_outlier', multiple="stack")  # Histogram for visualizing the distribution of predicted capacities
+sns.histplot(data=missing_capacity, x='predicted_capacity', hue='is_outlier', multiple="stack")
 plt.title('Distribution of Predicted Capacities')
 plt.show()
 
 # %% [markdown]
-# ## Scaling the Estimated Capacities to Target Value
+# ### Scaling to the target capacity
 #
-# To ensure that our capacity estimates match the known total number of care places in Berlin, a final adjustment is made:
-#
-# 1. **Calculation of Total Capacity**:
-# - Summing all known and estimated capacities from point and area data
-# - This first sum is based on our statistical estimates
-#
-# 2. **Scaling Factor**:
-# - Comparison of the estimated total capacity with the official target capacity
-# - Calculation of a scaling factor that adjusts the estimated values to the target value
-#
-# 3. **Adjustment of Estimates**:
-# - All estimated (not the known!) capacity values are multiplied by the scaling factor
-# - This ensures that the total number of care places matches reality
-# - The relative distribution of the estimated capacities is maintained
-#
-# This scaling is the last step in capacity estimation and ensures consistency of our data with official statistics.
+# Scale the estimated values so the combined dataset matches the known Berlin-wide target capacity.
+# This preserves the relative structure of the predictions while calibrating the total.
 
 # %%
 # Calculate the current total capacity
@@ -370,39 +263,15 @@ for gdf in [nodes, polygons]:
     ).round()
 
 # %% [markdown]
-# ## Finalization and Analysis of the Capacity Dataset
+# ## Results / Summary
 #
-# In this final step, the data are merged, analyzed, and prepared for further use:
-#
-# 1. **Data Merging**:
-# - Combining point and area data into a complete dataset
-# - Creating a unified capacity column with observed and estimated values
-# - Documenting the data source (observed/estimated) for transparency
-#
-# 2. **Statistical Evaluation**:
-# - Overview of Berlin's daycare landscape (number, total capacity)
-# - Detailed district statistics with:
-#  - Total number of care places
-#  - Average daycare size
-#  - Number of facilities
-#
-# 3. **Visualizations**:
-# - Boxplots showing the distribution of capacities by data source
-# - Bar chart of total capacities by district
-# - Stacked histogram visualizing the capacity distribution
-#
-# 4. **Data Storage**:
-# - Creation of a final GeoJSON dataset with all relevant information
-# - Saving the data for further analyses and visualizations
-#
-# This final preparation forms the basis for all further analyses within the KitaVision project and enables in-depth insights into the supply situation.
+# Merge the point and polygon datasets into one final daycare layer with observed and predicted capacities.
+# The summary statistics and plots provide a final plausibility check before export.
 
 # %%
-# Selection and merging of relevant columns
 columns = ['name', 'id', 'capacity', 'predicted_capacity', 'geometry', 'suburb']
 combined = pd.concat([nodes[columns], polygons[columns]], ignore_index=True)
 
-# Creation of the final capacity columns
 combined['final_capacity'] = combined['capacity'].fillna(combined['predicted_capacity'])
 combined['capacity_source'] = np.where(
     combined['capacity'].isna(),
@@ -411,35 +280,27 @@ combined['capacity_source'] = np.where(
 )
 
 # %%
-# Print final statistics
-print("\nFinale Statistiken:")
-print(f"Gesamtanzahl Kitas: {len(combined):,}")
-print(f"Geschätzte Kapazitäten: {(combined['capacity_source'] == 'predicted').sum():,}")
-print(f"Gesamtkapazität: {combined['final_capacity'].sum():,.0f}")
+print("\nFinal statistics:")
+print(f"Total daycare centers: {len(combined):,}")
+print(f"Estimated capacities: {(combined['capacity_source'] == 'predicted').sum():,}")
+print(f"Total capacity: {combined['final_capacity'].sum():,.0f}")
 
-# Calculate capacity distribution statistics by district
-# Aggregates sum, mean and count of final capacity for each suburb
-bezirk_stats = combined.groupby('suburb').agg({
+district_stats = combined.groupby('suburb').agg({
     'final_capacity': ['sum', 'mean', 'count']
 }).round(0)
-display(bezirk_stats)
+display(district_stats)
 
+
+# %% [markdown]
+# ## Export
+#
+# Final processed dataset written to `data/processed/daycare_centers_processed.geojson`.
 
 # %%
-# Select final columns for output dataset
-# - name: Name of the daycare center
-# - id: Unique identifier
-# - suburb: District/neighborhood
-# - final_capacity: Final capacity (either observed or predicted)
-# - capacity_source: Source of capacity data (observed/predicted)
-# - geometry: Geographic location/shape
 final_columns = ['name', 'id', 'suburb', 'final_capacity', 'capacity_source', 'geometry']
 combined = combined[final_columns]
 
-# Create output directory if it doesn't exist
 OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-# Save final dataset as GeoJSON file
 combined.to_file(OUTPUT_FILE, driver='GeoJSON')
 print(f"\nData saved to: {OUTPUT_FILE}")
 
@@ -452,8 +313,8 @@ sns.boxplot(x='capacity_source', y='final_capacity', data=combined, ax=ax1)
 ax1.set_title('Capacity Distribution by Source')
 
 # Calculate and plot total capacity per district as bar chart
-bezirk_stats = combined.groupby('suburb')['final_capacity'].sum().sort_values()
-bezirk_stats.plot(kind='bar', ax=ax2)
+district_stats = combined.groupby('suburb')['final_capacity'].sum().sort_values()
+district_stats.plot(kind='bar', ax=ax2)
 ax2.set_title('Total Capacity per District')
 ax2.tick_params(axis='x', rotation=45)
 
