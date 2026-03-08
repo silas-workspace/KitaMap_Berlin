@@ -13,7 +13,7 @@
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/KitaMap_Berlin.git
+git clone https://github.com/silas-workspace/KitaMap_Berlin.git
 cd KitaMap_Berlin
 
 # 2. Install dependencies
@@ -28,101 +28,80 @@ jupyter notebook notebooks/
 
 ## Project Overview
 
-KitaMap Berlin is a comprehensive data-driven project analyzing the spatial distribution and accessibility of daycare centers in Berlin. The project combines modern GIS technologies with advanced analytical methods to provide evidence-based insights for urban planning and policy decisions.
+KitaMap Berlin is a data-driven project that analyzes the spatial distribution and accessibility of daycare centers in Berlin. The project combines GIS workflows, demographic forecasting, and interactive visualization to support urban planning and policy decisions.
 
 ### Key Features
 
 - **📊 Coverage Analysis**: District-level assessment of current daycare availability
 - **🔮 Demographic Forecasting**: Population-based demand prediction until 2034
 - **📍 Gap Identification**: Detection of underserved areas and hotspots
-- **🚶‍♀️ Accessibility Analysis**: Walking-distance catchment area calculations  
+- **🚶‍♀️ Accessibility Analysis**: Walking-distance catchment area calculations
 - **🌱 Environmental Integration**: Proximity analysis to green spaces and water areas
 - **📱 Interactive Visualization**: Web-based dashboard with CARTO integration
 
 ## Technology Stack
 
-### 🐍 Core Technologies
+### Core Technologies
 - **Python 3.8+** - Primary programming language
 - **GeoPandas** - Spatial data analysis and manipulation
 - **Pandas & NumPy** - Data processing and numerical computations
 - **Shapely** - Geometric operations and spatial calculations
 
-### 🗺 GIS & Mapping
+### GIS & Mapping
 - **CARTO** - Interactive web-based visualization platform
 - **OpenStreetMap** - Base map data and point-of-interest extraction
 - **OpenRouteService API** - Isochrone and routing calculations
 - **OSMium** - High-performance OSM data processing
 
-### 📊 Analysis & Forecasting
+### Analysis & Forecasting
 - **Prophet** - Time series forecasting for demographic predictions
 - **Statsmodels** - Statistical modeling and regression analysis
 - **Scikit-learn** - Machine learning utilities
 - **Matplotlib & Seaborn** - Statistical visualizations
 
-### 💻 Development Environment
+### Development Environment
 - **Jupyter Notebooks** - Interactive analysis and documentation
 - **TQDM** - Progress bars for long-running operations
 - **Python-dotenv** - Environment variable management
+- **Ruff / Pyright / Nox** - Linting, type checking, and task automation
 
 ## Project Structure
 
-```
+```text
 KitaMap_Berlin/
-├── 📄 README.md                  # Projektdokumentation  
-├── 📄 LICENSE                    # MIT-Lizenz
-├── 📄 pyproject.toml            # Python-Projekt-Konfiguration
-├── 📄 requirements.txt           # Python-Abhängigkeiten
-│
-├── 📂 src/                      # Quellcode-Verzeichnis
-│   ├── data_processing/         # Datenverarbeitung
-│   │   ├── __init__.py
-│   │   └── kita_data_processor.py
-│   ├── analysis/                # Analysefunktionen  
-│   │   ├── __init__.py
-│   │   ├── catchment_area.py
-│   │   └── green_water_area.py
-│   └── utils/                   # Hilfsfunktionen
-│       ├── __init__.py
-│       └── geo_utils.py
-│
-├── 📊 notebooks/                # Jupyter Notebooks für explorative Analyse
-│   ├── 01_data_preparation_kitas.ipynb
-│   ├── 02_demographic_analysis.ipynb
-│   ├── 03_data_preparation_bezirke.ipynb
-│   └── README.md                # Notebook-Übersicht
-│
-├── 📁 data/                     # Datenverzeichnis
-│   ├── raw/                     # Rohdaten (unverändert)
-│   │   ├── berlin-latest.osm.pbf
-│   │   ├── entwicklung_2015_2024.csv
-│   │   └── kitas_osm.geojson
-│   ├── processed/               # Verarbeitete Zwischendaten
-│   │   ├── bezirke_processed.geojson
-│   │   ├── kitas_processed.geojson
-│   │   └── prognose_2024_2034.csv
-│   ├── results/                 # Finale Analyseergebnisse
-│   │   ├── isochrones.geojson
-│   │   ├── berlin_green_areas.geojson
-│   │   └── berlin_water_areas.geojson
-│   └── external/                # Externe/Export-Daten (CARTO etc.)
-│       ├── kita_versorgung_basis.geojson
-│       ├── kita_versorgung_kategorie_2024.geojson
-│       └── kita_versorgung_trend_2024_2034.geojson
-│
-├── 📖 docs/                     # Dokumentation
-│   ├── index.md
-│   ├── methodology.md           # Methodenbeschreibung
-│   └── api_reference.md         # Code-Dokumentation
-│
-├── 🧪 tests/                    # Tests
-│   ├── __init__.py
-│   ├── test_catchment_area.py
-│   └── test_data_processing.py
-│
-└── 🎨 assets/                   # Zusätzliche Ressourcen
-    ├── images/                  # Screenshots, Diagramme
-    └── config/                  # Konfigurationsdateien
-        └── settings.yml
+├── AGENTS.md
+├── LICENSE
+├── README.md
+├── main.py
+├── noxfile.py
+├── pyproject.toml
+├── requirements.txt
+├── run_analysis.py
+├── data/
+│   ├── external/
+│   │   └── README.md
+│   ├── processed/
+│   │   └── README.md
+│   ├── raw/
+│   │   └── README.md
+│   └── results/
+│       └── README.md
+├── docs/
+│   └── methodology.md
+├── notebooks/
+│   ├── 01_daycare_data_processing.ipynb
+│   ├── 01_daycare_data_processing.py
+│   ├── 02_demographic_forecasting.ipynb
+│   ├── 02_demographic_forecasting.py
+│   ├── 03_district_analysis.ipynb
+│   ├── 03_district_analysis.py
+│   ├── 04_spatial_analysis.ipynb
+│   ├── 04_spatial_analysis.py
+│   └── README.md
+└── src/
+    ├── __init__.py
+    ├── config.py
+    └── spatial_analysis.py
 ```
 
 ## Usage Examples
@@ -133,21 +112,24 @@ KitaMap_Berlin/
 python main.py
 
 # Extract only OSM areas (green spaces, water bodies)
-python main.py --osm-only
+python run_analysis.py --osm-only
 
 # Generate isochrones only (requires API key)
-python main.py --isochrones-only --api-key YOUR_ORS_KEY
+python run_analysis.py --isochrones-only --api-key YOUR_ORS_KEY
 ```
 
 ### Jupyter Notebooks
-The project includes three main analysis notebooks:
+The project includes four analysis notebooks:
 
-1. **`01_daycare_data_processing.ipynb`** - Data cleaning and capacity estimation
-2. **`02_demographic_forecasting.ipynb`** - Population predictions using time series
-3. **`03_district_analysis.ipynb`** - Spatial analysis and coverage assessment
+1. **`01_daycare_data_processing.ipynb`** - Daycare data cleaning and capacity estimation
+2. **`02_demographic_forecasting.ipynb`** - Population forecasting until 2034
+3. **`04_spatial_analysis.ipynb`** - OSM area extraction and isochrone generation
+4. **`03_district_analysis.ipynb`** - District coverage analysis and CARTO exports
+
+Run them in this order: **01 → 02 → 04 → 03**.
 
 ### API Configuration
-For catchment area analysis, set your OpenRouteService API key:
+For isochrone generation, set your OpenRouteService API key:
 ```bash
 export OPENROUTESERVICE_API_KEY="your_api_key_here"
 ```
@@ -165,11 +147,11 @@ export OPENROUTESERVICE_API_KEY="your_api_key_here"
 
 ### 1. Data Collection & Processing
 - Automated extraction of daycare locations from OpenStreetMap
-- Capacity estimation using area-based regression and district-specific medians  
+- Capacity estimation using area-based regression and district-specific medians
 - Integration of demographic data at district level
 
 ### 2. Spatial Analysis
-- **Catchment Areas**: 500m walking-distance isochrones around facilities
+- **Catchment Areas**: 500 m walking-distance isochrones around facilities
 - **Accessibility Analysis**: Route-based calculations via OpenRouteService API
 - **Coverage Assessment**: District-level availability metrics
 
@@ -186,19 +168,19 @@ export OPENROUTESERVICE_API_KEY="your_api_key_here"
 ## Key Results
 
 ### Current Coverage (2024)
-- **Over-supplied Districts**: Charlottenburg-Wilmersdorf, Steglitz-Zehlendorf  
+- **Over-supplied Districts**: Charlottenburg-Wilmersdorf, Steglitz-Zehlendorf
 - **Under-supplied Districts**: Neukölln, Marzahn-Hellersdorf
-- **Critical Areas**: 15 identified hotspots with significant coverage gaps
+- **Critical Areas**: Identified hotspots with significant coverage gaps
 
 ### 2034 Forecast
-- **Population Growth**: +8.5% in target age groups (0-6 years)
-- **Additional Demand**: ~2,500 new daycare spots required
-- **Priority Areas**: 8 districts requiring urgent intervention
+- **Population Growth**: Rising demand in several districts
+- **Additional Demand**: Need for additional daycare spots by 2034
+- **Priority Areas**: Districts requiring targeted intervention
 
 ## Applications
 
 - **Urban Planning**: Evidence-based location planning for new facilities
-- **Policy Making**: Data-driven resource allocation decisions  
+- **Policy Making**: Data-driven resource allocation decisions
 - **Research**: Methodological framework for similar urban analyses
 - **Public Transparency**: Clear visualization of service coverage
 
@@ -211,7 +193,7 @@ export OPENROUTESERVICE_API_KEY="your_api_key_here"
 ### Setup
 ```bash
 # 1. Clone the repository
-git clone https://github.com/SilasPignotti/KitaMap_Berlin.git
+git clone https://github.com/silas-workspace/KitaMap_Berlin.git
 cd KitaMap_Berlin
 
 # 2. Create virtual environment (recommended)
@@ -227,25 +209,19 @@ pip install -r requirements.txt
 python main.py
 ```
 
-## Contributing
-
-Contributions are welcome! Please feel free to:
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
+Before running the full workflow:
+- Download `berlin-latest.osm.pbf` from https://download.geofabrik.de/europe/germany/berlin.html and place it in `data/raw/`. The file is not tracked because it is large.
+- Ensure `data/raw/daycare_centers_osm.geojson` is present before running Notebook 01.
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
 
 ## Author
 
 **Silas Pignotti**
-- GitHub: [@SilasPignotti](https://github.com/SilasPignotti)
-- Project: [KitaMap Berlin](https://github.com/SilasPignotti/KitaMap_Berlin)
+- GitHub: [@silas-workspace](https://github.com/silas-workspace)
+- Project: [KitaMap Berlin](https://github.com/silas-workspace/KitaMap_Berlin)
 
 ## Acknowledgments
 
@@ -254,5 +230,3 @@ This project is licensed under the MIT License. See [LICENSE](LICENSE) for detai
 - **Berlin Statistics Office** for demographic data
 - **CARTO** for visualization platform
 - **OpenRouteService** for routing and accessibility APIs
-
----

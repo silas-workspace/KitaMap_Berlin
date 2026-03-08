@@ -141,8 +141,13 @@ dmypy.json
 *.cpg
 *.qmd
 
+# Large OSM data files (download separately — see README)
+*.osm.pbf
+*.osm.bz2
+
 # Keep only specific data files
 !data/raw/*.csv
+!data/raw/*.geojson
 !data/processed/*.csv
 !data/results/*.geojson
 !data/external/*.geojson

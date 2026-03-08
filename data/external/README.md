@@ -1,0 +1,1 @@
+GeoJSON exports for the CARTO dashboard. The district coverage layers are produced by `notebooks/03_district_analysis.ipynb`; `daycare_locations.geojson` was renamed from `data/Carto/Kitastandorte.geojson`, and `catchment_areas.geojson` was renamed from `data/output/isochrones_overlapping.geojson` during the 2025 portfolio cleanup.

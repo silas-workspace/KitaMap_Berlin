@@ -1,59 +1,65 @@
 # Jupyter Notebooks - KitaMap Berlin
 
-This directory contains Jupyter notebooks for exploratory data analysis and methodology documentation.
+This directory contains Jupyter notebooks for exploratory analysis and reproducible project workflows.
 
 ## Notebook Overview
 
 ### 01_daycare_data_processing.ipynb
-**Main Goal**: Processing and capacity estimation for daycare data from OpenStreetMap
+**Main Goal**: Process daycare data from OpenStreetMap and estimate missing capacities.
 
 **Core Tasks**:
-- Data integration of OSM daycare data and Berlin district boundaries
-- Capacity estimation for missing values using:
-  - Area-based regression for polygon geometries
-  - District-specific median estimation for point geometries
-- Data validation and scaling to target capacity
-- Export of final dataset
+- Integrate OSM daycare data with Berlin district boundaries
+- Estimate missing capacities for polygon and point geometries
+- Validate and scale results to the project target capacity
+- Export the processed daycare dataset
 
 **Output**: `../data/processed/daycare_centers_processed.geojson`
 
 ### 02_demographic_forecasting.ipynb
-**Main Goal**: Demographic analysis and demand forecasting
+**Main Goal**: Forecast population-based daycare demand until 2034.
 
 **Core Tasks**:
-- Analysis of population development by districts
-- Time series modeling with Prophet and Exponential Smoothing
-- Forecast of daycare demand until 2034
-- Identification of coverage gaps
+- Analyze population development by district
+- Compare Prophet and Exponential Smoothing forecasts
+- Export district-level forecasts for later analysis
 
 **Output**: `../data/processed/population_forecast_2024_2034.csv`
 
 ### 03_district_analysis.ipynb
-**Main Goal**: District data preparation and spatial analysis
+**Main Goal**: Analyze district coverage and prepare CARTO export layers.
 
 **Core Tasks**:
-- Geometric preparation of district boundaries
-- Spatial aggregation of daycare data by districts
-- Calculation of coverage metrics
-- Preparation for CARTO visualization
+- Prepare district geometries for analysis
+- Aggregate daycare supply metrics by district
+- Calculate coverage, category, and trend outputs
+- Export GeoJSON layers for visualization
 
-**Output**: Multiple files in `../data/external/` for visualization
+**Output**: Multiple files in `../data/external/`
+
+### 04_spatial_analysis.ipynb
+**Main Goal**: OSM area extraction and isochrone generation.
+
+**Core Tasks**:
+- Extract green spaces and water bodies from `berlin-latest.osm.pbf`
+- Generate 500 m walking-distance isochrones via OpenRouteService API
+- Remove overlapping isochrone areas for coverage calculations
+
+**Prerequisites**: `OPENROUTESERVICE_API_KEY` environment variable and `data/raw/berlin-latest.osm.pbf`
+**Output**: Files in `../data/results/`
 
 ## Usage
 
-The notebooks should be used in the specified order, as later notebooks build upon the outputs of earlier ones.
+Run notebooks in this order: **01 → 02 → 04 → 03**.
+
+Notebook 04 must complete before Notebook 03 can run the isochrone-based analysis.
 
 ### Prerequisites
 ```bash
-# Install dependencies
 pip install -r ../requirements.txt
-
-# Start Jupyter
 jupyter notebook
 ```
 
 ### Data Structure
-After project restructuring, paths are organized as follows:
 - Raw data: `../data/raw/`
 - Processed data: `../data/processed/`
 - Analysis results: `../data/results/`
